@@ -8,8 +8,10 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.io.jdbc.*;
+import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.extensions.sql.SqlTransform;
+
 
 import org.apache.beam.sdk.transforms.SimpleFunction;
 
@@ -70,20 +72,23 @@ public class Vinextract {
 
                 }));
 
-        PCollection<Row> requestRows =  requests.apply(ParDo.of(new convertToRow()))
-                                        .apply(SqlTransform.query("SELECT Id, Pays FROM PCOLLECTION"));
 
-        requestRows.apply(
-                "log_result",
-                MapElements.via(
-                        new SimpleFunction<Row, Void>() {
-                            @Override
-                            public @Nullable
-                            Void apply(Row input) {
-                                System.out.println("PCOLLECTION: " + input.getValues());
-                                return null;
-                            }
-                        }));
+
+        PCollection<Row> processedRequests = requests.apply( "conversion", ParDo.of(new convertToRow())).setCoder(convertToRow.coder)
+                                                    .apply( "remove duplicates", Distinct.<Row>create() );
+
+        processedRequests.apply(SqlTransform.query("SELECT COUNT(*) FROM PCOLLECTION"))
+                        .apply(
+                                "log_result1",
+                                MapElements.via(
+                                        new SimpleFunction<Row, Void>() {
+                                            @Override
+                                            public @Nullable
+                                            Void apply(Row input) {
+                                                System.out.println("PCOLLECTION: " + input.getValues());
+                                                return null;
+                                            }
+                                        }));
 
         /*requests.apply(MapElements.via(new FormatAsTextFn()))
                 .apply("Write", TextIO.write().to(options.getOutput()));*/

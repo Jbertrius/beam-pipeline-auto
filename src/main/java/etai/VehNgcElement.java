@@ -100,4 +100,6 @@ public abstract class VehNgcElement implements Serializable, Comparable<VehNgcEl
     @Memoized
     @Override
     public abstract String toString();
+
+
 }
