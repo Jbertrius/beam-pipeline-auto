@@ -1,26 +1,24 @@
 package etai;
 
+import etai.DoFnFunctions.FilterBy;
+import etai.DoFnFunctions.convertToKV;
+import etai.DoFnFunctions.convertToRow;
+import etai.Elements.RequestElement;
+import etai.Elements.VehNgcElement;
 import org.apache.beam.sdk.Pipeline;
-import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.extensions.joinlibrary.Join;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.coders.*;
-import org.apache.beam.sdk.transforms.MapElements;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.values.*;
 import org.apache.beam.sdk.io.jdbc.*;
-import org.apache.beam.sdk.transforms.Distinct;
-import org.apache.beam.sdk.values.Row;
-import org.apache.beam.sdk.extensions.sql.SqlTransform;
-
-
-import org.apache.beam.sdk.transforms.SimpleFunction;
-
-import javax.annotation.Nullable;
 
 public class Vinextract {
 
+    //private static final Logger LOG = LoggerFactory.getLogger(Vinextract.class);
 
     public static void main(String[] args) {
+
 
         /* Get Pipeline options */
         VinextractOptions options =
@@ -30,14 +28,14 @@ public class Vinextract {
 
         /* Queries to get Data from Database */
         String queryReq = "select a.id, a.immat, a.pays, a.algori, replace(b.resultat, ' ', ',')  " +
-                "from requetes a join resultats b on a.resident_fk = b.id where length(b.resultat) > 0 and a.pays = '" + options.getPays() +  "' LIMIT 1000";
+                "from requetes a join resultats b on a.resident_fk = b.id where length(b.resultat) > 0 and a.pays = '" + options.getPays() +  "' LIMIT 10000";
 
-        String queryBVE = "Select c.id, a.nom,  b.gamme,  b.nom, b.serie, e.description as alimentation,  c.capacitecarter,  " +
+        /*String queryBVE = "Select c.id, a.nom,  b.gamme,  b.nom, b.serie, e.description as alimentation,  c.capacitecarter,  " +
                 "f.description as carrosserie,  c.chassis,  c.coteconduite,  c.cylindreecm3,  c.cylindreelit,  c.cylindresnbr,  c.energie,  c.phase,  " +
                 "c.portesnbr,  c.puissancecom,  c.puissancekw, c.typemoteur, c.typeboitevitesses, c.vitessesbte, c.vitessesnbr, d.code, c.injection  " +
                 "from bve_marque a  INNER JOIN  bve_modele b on a.id= b.idmarque INNER JOIN  bve_variante c on b.id= c.idmodele INNER JOIN  " +
                 "bve_typevehicule d on d.id= c.typevehicule INNER JOIN  bve_codecaracteristiquevaleur e on e.codevaleur = c.alimentation INNER JOIN  " +
-                "bve_codecaracteristiquevaleur f on f.codevaleur = c.carrosserie order by a.nom";
+                "bve_codecaracteristiquevaleur f on f.codevaleur = c.carrosserie order by a.nom";*/
 
         String queryNGC = "select id, marque, vin, immat, modele, version, typevarversprf, cnit_mines, energie, codemoteur, tpboitevit, nbvitesse, cylindree, nbportes, carrosserie, carrosseriecg, genrev, genrevcg, puisfisc, puiskw, nbcylind, nbplass, empat, largeur, longueur, hauteur " +
                 " from vehngc  where LENGTH(vin) > 0 " +
@@ -59,6 +57,7 @@ public class Vinextract {
                         .withUsername(options.getLogindbSIM())
                         .withPassword(options.getPassworddbSIM()))
                 .withCoder( SerializableCoder.of(RequestElement.class) )
+                //.withFetchSize(500)
                 .withQuery(queryReq)
                 .withRowMapper( (JdbcIO.RowMapper<RequestElement>) resultSet -> {
 
@@ -73,31 +72,19 @@ public class Vinextract {
                 }));
 
 
-
-        PCollection<Row> processedRequests = requests.apply( "conversion", ParDo.of(new convertToRow())).setCoder(convertToRow.coder)
+        PCollection<Row> processedRequests = requests.apply( "conversion", ParDo.of(new convertToRow())).setCoder(convertToRow.requestCoder)
                                                     .apply( "remove duplicates", Distinct.<Row>create() );
 
-        processedRequests.apply(SqlTransform.query("SELECT COUNT(*) FROM PCOLLECTION"))
-                        .apply(
-                                "log_result1",
-                                MapElements.via(
-                                        new SimpleFunction<Row, Void>() {
-                                            @Override
-                                            public @Nullable
-                                            Void apply(Row input) {
-                                                System.out.println("PCOLLECTION: " + input.getValues());
-                                                return null;
-                                            }
-                                        }));
+        PCollection<KV<String, Row>> KVrequest = processedRequests.apply( "KV_request", ParDo.of(new convertToKV("Immat")));
 
-        /*requests.apply(MapElements.via(new FormatAsTextFn()))
-                .apply("Write", TextIO.write().to(options.getOutput()));*/
+
+
 
 
         /* Source Vehicule NGC
             Create the PCollection 'VehNgcElement' by applying a 'Read' transform.
         */
-        /*PCollection<VehNgcElement> ngcdata = p.apply("ReadNGCData", JdbcIO.<VehNgcElement>read()
+        PCollection<VehNgcElement> ngcdata = p.apply("ReadNGCData", JdbcIO.<VehNgcElement>read()
                                     .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
                                             "com.mysql.jdbc.Driver",
                                             "jdbc:mysql://"+ options.getHostnamedbSIM() +":"  + options.getPortdbSIM() + "/"+ options.getBasedbSIM() )
@@ -106,6 +93,7 @@ public class Vinextract {
                                     .withCoder( SerializableCoder.of(VehNgcElement.class) )
                                     .withQuery(queryNGC)
                                     .withRowMapper( (JdbcIO.RowMapper<VehNgcElement>) resultSet -> {
+
 
                                                 return VehNgcElement.create(
                                                         resultSet.getInt(1),
@@ -137,8 +125,21 @@ public class Vinextract {
                                                 );
                                                     }));
 
-        ngcdata.apply(MapElements.via(new FormatAsTextFn()))
-                .apply("Write", TextIO.write().to(options.getOutput()));*/
+        PCollection<Row> ngcdataRow = ngcdata.apply("conversionNGC", ParDo.of(new convertToRow())).setCoder(convertToRow.vehNgcCoder);
+
+        PCollection<KV<String, Row>> KVngc =  ngcdataRow.apply( "KV_ngc", ParDo.of(new convertToKV("Immat")));
+
+
+        PCollection<KV<String, KV<Row, Row>>> joinedDatasets = Join.innerJoin(KVngc, KVrequest);
+
+
+        /**
+           First element -> NGC
+           Second element -> Request
+          **/
+
+        joinedDatasets.apply( "Filter_by_Marque", ParDo.of(new FilterBy(options.getMarque())));
+
 
         p.run().waitUntilFinish();
     }

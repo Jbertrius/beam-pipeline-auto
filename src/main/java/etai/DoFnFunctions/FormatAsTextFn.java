@@ -1,4 +1,4 @@
-package etai;
+package etai.DoFnFunctions;
 
 import org.apache.beam.sdk.transforms.SimpleFunction;
 

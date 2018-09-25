@@ -1,9 +1,9 @@
-package etai;
+package etai.Elements;
 
 import org.apache.beam.sdk.coders.*;
 
 @DefaultCoder(AvroCoder.class)
-public class BveObject {
+public class BveElement {
     private Integer Id;
     private String marque;
     private String modele;
@@ -29,7 +29,7 @@ public class BveObject {
     private String typevehicule;
     private String injection;
 
-    BveObject( Integer Id, String marque, String modele, String modelegen, String generation, String alimentation, Integer capacitecarter, String carrosserie, String chassis, Integer codeconduite, Integer cylindreecm3, float cylindreelit, Integer cylindresnbr, Integer energie, Integer phase, Integer portesnbr, Integer puissancekw, Integer puissancecom, String typemoteur, String typeboitevitesses, Integer vitessesbte, Integer vitessesnbr, String typevehicule, String injection ) {
+    BveElement(Integer Id, String marque, String modele, String modelegen, String generation, String alimentation, Integer capacitecarter, String carrosserie, String chassis, Integer codeconduite, Integer cylindreecm3, float cylindreelit, Integer cylindresnbr, Integer energie, Integer phase, Integer portesnbr, Integer puissancekw, Integer puissancecom, String typemoteur, String typeboitevitesses, Integer vitessesbte, Integer vitessesnbr, String typevehicule, String injection ) {
         this.Id = Id;
         this.marque = marque;
         this.modele = modele;
@@ -58,7 +58,7 @@ public class BveObject {
 
     @Override
     public String toString() {
-        return "BveObject{" +
+        return "BveElement{" +
                 "Id=" + Id +
                 ", marque='" + marque + '\'' +
                 ", modele='" + modele + '\'' +

@@ -55,4 +55,10 @@ public interface VinextractOptions extends PipelineOptions {
 
     void setOutput(String value);
 
+    /** Marque pour filtrer  */
+    @Description("Marque Filter parameter")
+    @Default.String("VOLKSWAGEN")
+    String getMarque();
+
+    void setMarque(String value);
 }
