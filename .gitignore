@@ -1,3 +1,4 @@
 /.idea
 pipelinebuild.iml
 /target
+/src/main/java/etai/VinextractOptions.java

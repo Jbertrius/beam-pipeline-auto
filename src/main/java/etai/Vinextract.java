@@ -3,19 +3,26 @@ package etai;
 import etai.DoFnFunctions.FilterBy;
 import etai.DoFnFunctions.convertToKV;
 import etai.DoFnFunctions.convertToRow;
+import etai.Elements.BveElement;
+import etai.Elements.CompareElement;
 import etai.Elements.RequestElement;
 import etai.Elements.VehNgcElement;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.extensions.joinlibrary.Join;
+import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
 import org.apache.beam.sdk.io.jdbc.*;
 
+import javax.annotation.Nullable;
+import java.util.List;
+
 public class Vinextract {
 
     //private static final Logger LOG = LoggerFactory.getLogger(Vinextract.class);
+
 
     public static void main(String[] args) {
 
@@ -26,23 +33,25 @@ public class Vinextract {
                         .withValidation()
                         .as(VinextractOptions.class);
 
-        /* Queries to get Data from Database */
-        String queryReq = "select a.id, a.immat, a.pays, a.algori, replace(b.resultat, ' ', ',')  " +
-                "from requetes a join resultats b on a.resident_fk = b.id where length(b.resultat) > 0 and a.pays = '" + options.getPays() +  "' LIMIT 10000";
 
-        /*String queryBVE = "Select c.id, a.nom,  b.gamme,  b.nom, b.serie, e.description as alimentation,  c.capacitecarter,  " +
-                "f.description as carrosserie,  c.chassis,  c.coteconduite,  c.cylindreecm3,  c.cylindreelit,  c.cylindresnbr,  c.energie,  c.phase,  " +
-                "c.portesnbr,  c.puissancecom,  c.puissancekw, c.typemoteur, c.typeboitevitesses, c.vitessesbte, c.vitessesnbr, d.code, c.injection  " +
-                "from bve_marque a  INNER JOIN  bve_modele b on a.id= b.idmarque INNER JOIN  bve_variante c on b.id= c.idmodele INNER JOIN  " +
-                "bve_typevehicule d on d.id= c.typevehicule INNER JOIN  bve_codecaracteristiquevaleur e on e.codevaleur = c.alimentation INNER JOIN  " +
-                "bve_codecaracteristiquevaleur f on f.codevaleur = c.carrosserie order by a.nom";*/
+        /* Define Remote or Local State */
+        String driver,databaseType,queryReq, queryBVE;
 
-        String queryNGC = "select id, marque, vin, immat, modele, version, typevarversprf, cnit_mines, energie, codemoteur, tpboitevit, nbvitesse, cylindree, nbportes, carrosserie, carrosseriecg, genrev, genrevcg, puisfisc, puiskw, nbcylind, nbplass, empat, largeur, longueur, hauteur " +
-                " from vehngc  where LENGTH(vin) > 0 " +
-                " and vin not like '%,%' " +
-                " and vin not like '%;%' " +
-                " and vin not like '%\"%' " +
-                " and LENGTH(vin) = CHAR_LENGTH(vin) LIMIT 10000";
+        String limit = "  LIMIT 40000";
+        Integer fetchsize = 500;
+
+        if (options.getEnvironment().equals("Local")) {
+            driver = "org.postgresql.Driver";
+            databaseType = "postgresql";
+            queryReq = Query.queryReqLocal.getQuery();
+            queryBVE = Query.queryBVELocal.getQuery();
+        } else {
+            driver = "com.mysql.jdbc.Driver";
+            databaseType = "mysql";
+            queryReq = Query.queryReqRemote.getQuery();
+            queryBVE = Query.queryBVELocal.getQuery();
+        }
+
 
         /* Create the pipeline */
         Pipeline p = Pipeline.create(options);
@@ -52,28 +61,30 @@ public class Vinextract {
         */
         PCollection<RequestElement> requests = p.apply("ReadDatabase", JdbcIO.<RequestElement>read()
                 .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
-                        "com.mysql.jdbc.Driver",
-                        "jdbc:mysql://"+ options.getHostnamedbSIM() +":"  + options.getPortdbSIM() + "/"+ options.getBasedbSIM() )
+                        driver,
+                        "jdbc:" + databaseType + "://"+ options.getHostnamedbSIM() +":"  + options.getPortdbSIM() + "/"+ options.getBasedbSIM() )
                         .withUsername(options.getLogindbSIM())
                         .withPassword(options.getPassworddbSIM()))
                 .withCoder( SerializableCoder.of(RequestElement.class) )
-                //.withFetchSize(500)
-                .withQuery(queryReq)
+                .withFetchSize(fetchsize)
+                .withQuery(queryReq + limit)
                 .withRowMapper( (JdbcIO.RowMapper<RequestElement>) resultSet -> {
 
+                    String regex = "[\\{\\}]";
                     return RequestElement.create(
                             resultSet.getInt(1),
                             resultSet.getString(2),
                             resultSet.getString(3),
                             resultSet.getString(4),
-                            resultSet.getString(5)
+                            resultSet.getString(5).replaceAll(regex, "")
                     );
 
                 }));
 
 
         PCollection<Row> processedRequests = requests.apply( "conversion", ParDo.of(new convertToRow())).setCoder(convertToRow.requestCoder)
-                                                    .apply( "remove duplicates", Distinct.<Row>create() );
+                .apply( "remove duplicates", Distinct.<Row>create() );
+
 
         PCollection<KV<String, Row>> KVrequest = processedRequests.apply( "KV_request", ParDo.of(new convertToKV("Immat")));
 
@@ -85,63 +96,160 @@ public class Vinextract {
             Create the PCollection 'VehNgcElement' by applying a 'Read' transform.
         */
         PCollection<VehNgcElement> ngcdata = p.apply("ReadNGCData", JdbcIO.<VehNgcElement>read()
-                                    .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
-                                            "com.mysql.jdbc.Driver",
-                                            "jdbc:mysql://"+ options.getHostnamedbSIM() +":"  + options.getPortdbSIM() + "/"+ options.getBasedbSIM() )
-                                            .withUsername(options.getLogindbSIM())
-                                            .withPassword(options.getPassworddbSIM()))
-                                    .withCoder( SerializableCoder.of(VehNgcElement.class) )
-                                    .withQuery(queryNGC)
-                                    .withRowMapper( (JdbcIO.RowMapper<VehNgcElement>) resultSet -> {
+                .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
+                        driver,
+                        "jdbc:" + databaseType + "://"+ options.getHostnamedbSIM() +":"  + options.getPortdbSIM() + "/"+ options.getBasedbSIM() )
+                        .withUsername(options.getLogindbSIM())
+                        .withPassword(options.getPassworddbSIM()))
+                .withCoder( SerializableCoder.of(VehNgcElement.class) )
+                .withFetchSize(fetchsize)
+                .withQuery(Query.queryNGC.getQuery() + limit)
+                .withRowMapper( (JdbcIO.RowMapper<VehNgcElement>) resultSet -> {
 
-
-                                                return VehNgcElement.create(
-                                                        resultSet.getInt(1),
-                                                        resultSet.getString(2),
-                                                        resultSet.getString(3),
-                                                        resultSet.getString(4),
-                                                        resultSet.getString(5),
-                                                        resultSet.getString(6),
-                                                        resultSet.getString(7),
-                                                        resultSet.getString(8),
-                                                        resultSet.getString(9),
-                                                        resultSet.getString(10),
-                                                        resultSet.getString(11),
-                                                        resultSet.getString(12),
-                                                        resultSet.getString(13),
-                                                        resultSet.getString(14),
-                                                        resultSet.getString(15),
-                                                        resultSet.getString(16),
-                                                        resultSet.getString(17),
-                                                        resultSet.getString(18),
-                                                        resultSet.getString(19),
-                                                        resultSet.getString(20),
-                                                        resultSet.getString(21),
-                                                        resultSet.getString(22),
-                                                        resultSet.getString(23),
-                                                        resultSet.getString(24),
-                                                        resultSet.getString(25),
-                                                        resultSet.getString(26)
-                                                );
-                                                    }));
+                    return VehNgcElement.create(
+                            resultSet.getInt(1),
+                            resultSet.getString(2),
+                            resultSet.getString(3),
+                            resultSet.getString(4),
+                            resultSet.getString(5),
+                            resultSet.getString(6),
+                            resultSet.getString(7),
+                            resultSet.getString(8),
+                            resultSet.getString(9),
+                            resultSet.getString(10),
+                            resultSet.getString(11),
+                            resultSet.getString(12),
+                            resultSet.getString(13),
+                            resultSet.getString(14),
+                            resultSet.getString(15),
+                            resultSet.getString(16),
+                            resultSet.getString(17),
+                            resultSet.getString(18),
+                            resultSet.getString(19),
+                            resultSet.getString(20),
+                            resultSet.getString(21),
+                            resultSet.getString(22),
+                            resultSet.getString(23),
+                            resultSet.getString(24),
+                            resultSet.getString(25),
+                            resultSet.getString(26)
+                    );
+                }));
 
         PCollection<Row> ngcdataRow = ngcdata.apply("conversionNGC", ParDo.of(new convertToRow())).setCoder(convertToRow.vehNgcCoder);
 
         PCollection<KV<String, Row>> KVngc =  ngcdataRow.apply( "KV_ngc", ParDo.of(new convertToKV("Immat")));
 
 
+
+        /* Source Vehicule BVE
+            Create the PCollection 'BveElement' by applying a 'Read' transform.
+        */
+
+
+        PCollection<BveElement> bveData = p.apply("ReadBVEData", JdbcIO.<BveElement>read()
+                .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
+                        "org.postgresql.Driver",
+                        "jdbc:postgresql://"+ options.getHostnamedbBVE()  +":"  + options.getPortdbBVE() + "/"+ options.getBasedbBVE() )
+                        .withUsername(options.getLogindbBVE())
+                        .withPassword(options.getPassworddbBVE()))
+                .withCoder( SerializableCoder.of(BveElement.class) )
+                .withFetchSize(fetchsize)
+                .withQuery(queryBVE + " WHERE marque = '" + options.getMarque().toUpperCase() + "'")
+                .withRowMapper( (JdbcIO.RowMapper<BveElement>) resultSet -> {
+
+                    return BveElement.create(
+                            resultSet.getInt(1),
+                            resultSet.getString(2),
+                            resultSet.getString(3),
+                            resultSet.getString(4),
+                            resultSet.getString(5) == null ? "" : resultSet.getString(5),
+                            resultSet.getString(6),
+                            resultSet.getFloat(7),
+                            resultSet.getString(8),
+                            resultSet.getString(9) == null ? "" : resultSet.getString(9),
+                            resultSet.getString(10),
+                            resultSet.getInt(11),
+                            resultSet.getFloat(12),
+                            resultSet.getInt(13),
+                            resultSet.getString(14),
+                            resultSet.getInt(15),
+                            resultSet.getInt(16),
+                            resultSet.getInt(17),
+                            resultSet.getInt(18),
+                            resultSet.getString(19) == null ? "" : resultSet.getString(19),
+                            resultSet.getString(20) == null ? "" : resultSet.getString(20),
+                            resultSet.getString(21),
+                            resultSet.getInt(22),
+                            resultSet.getString(23),
+                            resultSet.getString(24) == null ? "" : resultSet.getString(24)
+                    );
+                }));
+
+        PCollection<KV< Integer, BveElement >> KVbve =  bveData.apply("KV_bve", ParDo.of(new DoFn<BveElement, KV< Integer, BveElement >>() {
+            @ProcessElement
+            public void processElement(@Element BveElement element, OutputReceiver<KV<Integer, BveElement>> receiver) {
+                receiver.output(  KV.of(element.Id(), element)  );
+            }
+        }));
+
+
+
+
+        /*
+         * Jointure entre NGC et les requetes sur Immat
+         * */
         PCollection<KV<String, KV<Row, Row>>> joinedDatasets = Join.innerJoin(KVngc, KVrequest);
 
+        /*
+         * TEST
+         * **
+         */
+        /*KVbve.apply(
+                "log_result",
+                MapElements.via(
+                        new SimpleFunction<KV< Integer, BveElement >, Void>() {
+                            @Override
+                            public @Nullable
+                            Void apply(KV< Integer, BveElement > input) {
+                                System.out.println( String.format("PCOLLECTION: %s ", input.getKey()  ));
+                                return null;
+                            }
+                        }));*/
 
-        /**
-           First element -> NGC
-           Second element -> Request
+        /*
+           Filtrage par marque
           **/
 
-        joinedDatasets.apply( "Filter_by_Marque", ParDo.of(new FilterBy(options.getMarque())));
+        PCollection<KV<Integer, CompareElement>> filtered  = joinedDatasets.apply( "Filter_by_Marque", ParDo.of(new FilterBy(options.getMarque())));
+
+
+
+
+        /*
+           Jointure entre NGC, requetes et bve
+          **/
+        PCollection<KV<Integer, KV<CompareElement, BveElement>>> finalJoinedDatasets =  Join.innerJoin(filtered, KVbve);
+
+        finalJoinedDatasets.apply("ToString", ParDo.of(new DoFn<KV<Integer, KV<CompareElement, BveElement>>, String>() {
+
+            @ProcessElement
+            public void processElement(ProcessContext c) throws Exception {
+                StringBuilder sb = new StringBuilder();
+
+                KV<CompareElement, BveElement> value = c.element().getValue();
+
+                sb.append(String.format("%s", value.getKey().immat()  ));
+
+                c.output(sb.toString());
+            }
+
+        }))
+                .apply( "WriteToFile", TextIO.write().to(options.getOutput()).withSuffix(".csv").withoutSharding());
 
 
         p.run().waitUntilFinish();
     }
+
 
 }

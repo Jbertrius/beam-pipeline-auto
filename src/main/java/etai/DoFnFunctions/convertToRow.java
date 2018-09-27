@@ -1,5 +1,6 @@
 package etai.DoFnFunctions;
 
+import etai.Elements.BveElement;
 import etai.Elements.RequestElement;
 import etai.Elements.VehNgcElement;
 import org.apache.beam.sdk.coders.RowCoder;
@@ -50,6 +51,37 @@ public class convertToRow extends DoFn<Object, Row> {
 
     public static RowCoder vehNgcCoder = vehNgcSchema.getRowCoder();
 
+
+    static Schema bveSchema = Schema
+            .builder()
+            .addInt32Field("Id")
+            .addStringField("Marque")
+            .addStringField("Modele")
+            .addStringField("Modelegen")
+            .addStringField("Generation")
+            .addStringField("Alimentation")
+            .addFloatField("CapaciteCarter")
+            .addStringField("Carosserie")
+            .addStringField("Chassis")
+            .addStringField("CodeConduite")
+            .addInt32Field("CylindreeCm3")
+            .addFloatField("CylindreeLit")
+            .addInt32Field("NbCylindres")
+            .addStringField("Energie")
+            .addInt32Field("Phase")
+            .addInt32Field("NbPortes")
+            .addInt32Field("PuissanceKW")
+            .addInt32Field("PuissanceCOM")
+            .addStringField("TypeMoteur")
+            .addStringField("TypeBoiteVitesse")
+            .addStringField("BoiteVitesse")
+            .addInt32Field("NbVitesse")
+            .addStringField("TypeVehicule")
+            .addStringField("Injection")
+            .build();
+
+    public static RowCoder bveCoder = bveSchema.getRowCoder();
+
     @ProcessElement
     public void processElement(@Element Object element, OutputReceiver<Row> receiver) {
 
@@ -98,6 +130,40 @@ public class convertToRow extends DoFn<Object, Row> {
                             el.nbportes(),
                             el.genrev()
                              )
+                    .build();
+
+            receiver.output(appRow);
+        } else if ( element instanceof BveElement) {
+            BveElement el = (BveElement) element;
+
+            Row appRow = Row
+                    .withSchema(bveSchema)
+                    .addValues(
+                            el.Id(),
+                            el.marque(),
+                            el.modele(),
+                            el.modelegen(),
+                            el.generation(),
+                            el.alimentation(),
+                            el.capacitecarter(),
+                            el.carrosserie(),
+                            el.chassis(),
+                            el.codeconduite(),
+                            el.cylindreecm3(),
+                            el.cylindreelit(),
+                            el.cylindresnbr(),
+                            el.energie(),
+                            el.phase(),
+                            el.portesnbr(),
+                            el.puissancekw(),
+                            el.puissancecom(),
+                            el.typemoteur(),
+                            el.typeboitevitesses(),
+                            el.vitessesbte(),
+                            el.vitessesnbr(),
+                            el.typevehicule(),
+                            el.injection()
+                    )
                     .build();
 
             receiver.output(appRow);

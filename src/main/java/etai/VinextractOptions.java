@@ -6,59 +6,113 @@ import org.apache.beam.sdk.options.PipelineOptions;
 
 public interface VinextractOptions extends PipelineOptions {
 
-    /** hostname  */
+
+    /** SIM Database Parameters */
+
+    // hostname
     @Description("hostname dbSIM")
-    @Default.String("10.23.10.23")
+    @Default.String("localhost")
 
     String getHostnamedbSIM();
     void setHostnamedbSIM(String hostname);
 
-    /** login */
+    // login
     @Description("login dbSIM")
-    @Default.String("sraoul")
+    @Default.String("postgres")
 
     String getLogindbSIM();
     void setLogindbSIM(String login);
 
-    /** password */
+    // password
     @Description("password dbSIM")
-    @Default.String("LeSimCestLourd")
+    @Default.String("jeanbertrand")
 
     String getPassworddbSIM();
     void setPassworddbSIM(String password);
 
-    /** database */
+    // database
     @Description("database dbSIM")
-    @Default.String("servim")
+    @Default.String("CarData")
 
     String getBasedbSIM();
     void setBasedbSIM(String database);
 
-    /** port */
+    // port
     @Description("port dbSIM")
-    @Default.String("3307")
+    @Default.String("5432")
 
     String getPortdbSIM();
     void setPortdbSIM(String port);
 
-    /** pays */
+
+    /** BVE Database Parameters */
+
+    // hostname
+    @Description("hostname dbBVE")
+    @Default.String("localhost")
+
+    String getHostnamedbBVE();
+    void setHostnamedbBVE(String hostname);
+
+    // login
+    @Description("login dbBVE")
+    @Default.String("postgres")
+
+    String getLogindbBVE();
+    void setLogindbBVE(String login);
+
+    // password
+    @Description("password dbBVE")
+    @Default.String("jeanbertrand")
+
+    String getPassworddbBVE();
+    void setPassworddbBVE(String password);
+
+    // database
+    @Description("database dbBVE")
+    @Default.String("CarData")
+
+    String getBasedbBVE();
+    void setBasedbBVE(String database);
+
+    // port
+    @Description("port dbBVE")
+    @Default.String("5432")
+
+    String getPortdbBVE();
+    void setPortdbBVE(String port);
+    
+    
+    
+    /** Requests Query Parameters */
+
+    // pays
     @Description("pays Req")
     @Default.String("FR")
 
     String getPays();
     void setPays(String port);
 
-    /** Set this required option to specify where to write the output. */
-    @Description("Path of the file to write to")
-    @Default.String("/outputData.txt")
-    String getOutput();
 
-    void setOutput(String value);
-
-    /** Marque pour filtrer  */
+    // Marque pour filtrer
     @Description("Marque Filter parameter")
     @Default.String("VOLKSWAGEN")
     String getMarque();
 
     void setMarque(String value);
+
+    // Set this  option to specify where to write the output.
+    @Description("Path of the file to write to")
+    @Default.String("/outputData")
+    String getOutput();
+    void setOutput(String value);
+
+
+    /** Mode */
+
+    // Set this required option to specify where to run the program.
+    @Description("Environment ")
+    @Default.String("Local")
+    String getEnvironment();
+    void setEnvironment(String value);
 }
