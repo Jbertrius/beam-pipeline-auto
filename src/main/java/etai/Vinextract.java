@@ -1,12 +1,10 @@
 package etai;
 
-import etai.DoFnFunctions.FilterBy;
-import etai.DoFnFunctions.convertToKV;
-import etai.DoFnFunctions.convertToRow;
 import etai.Elements.BveElement;
 import etai.Elements.CompareElement;
 import etai.Elements.RequestElement;
 import etai.Elements.VehNgcElement;
+import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.extensions.joinlibrary.Join;
 import org.apache.beam.sdk.io.TextIO;
@@ -15,9 +13,6 @@ import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
 import org.apache.beam.sdk.io.jdbc.*;
-
-import javax.annotation.Nullable;
-import java.util.List;
 
 public class Vinextract {
 
@@ -37,7 +32,7 @@ public class Vinextract {
         /* Define Remote or Local State */
         String driver,databaseType,queryReq, queryBVE;
 
-        String limit = "  LIMIT 40000";
+        String limit = "  LIMIT 60000";
         Integer fetchsize = 500;
 
         if (options.getEnvironment().equals("Local")) {
@@ -59,7 +54,7 @@ public class Vinextract {
         /* Source Request
             Create the PCollection 'RequestElement' by applying a 'Read' transform.
         */
-        PCollection<RequestElement> requests = p.apply("ReadDatabase", JdbcIO.<RequestElement>read()
+        PCollection<RequestElement> requests = p.apply("ReadRequests", JdbcIO.<RequestElement>read()
                 .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
                         driver,
                         "jdbc:" + databaseType + "://"+ options.getHostnamedbSIM() +":"  + options.getPortdbSIM() + "/"+ options.getBasedbSIM() )
@@ -82,12 +77,7 @@ public class Vinextract {
                 }));
 
 
-        PCollection<Row> processedRequests = requests.apply( "conversion", ParDo.of(new convertToRow())).setCoder(convertToRow.requestCoder)
-                .apply( "remove duplicates", Distinct.<Row>create() );
-
-
-        PCollection<KV<String, Row>> KVrequest = processedRequests.apply( "KV_request", ParDo.of(new convertToKV("Immat")));
-
+        PCollection< KV<String, Integer> > KVrequest = requests.apply( "handleRequest", new TransformRequest() );
 
 
 
@@ -136,9 +126,10 @@ public class Vinextract {
                     );
                 }));
 
-        PCollection<Row> ngcdataRow = ngcdata.apply("conversionNGC", ParDo.of(new convertToRow())).setCoder(convertToRow.vehNgcCoder);
 
-        PCollection<KV<String, Row>> KVngc =  ngcdataRow.apply( "KV_ngc", ParDo.of(new convertToKV("Immat")));
+        PCollection<KV<String, VehNgcElement>> KVngc =  ngcdata.apply("KV_ngc_mapping", MapElements
+                                                        .into(TypeDescriptors.kvs(TypeDescriptors.strings(), TypeDescriptor.of(VehNgcElement.class) ))
+                                                        .via( new KVNGC()));
 
 
 
@@ -186,12 +177,9 @@ public class Vinextract {
                     );
                 }));
 
-        PCollection<KV< Integer, BveElement >> KVbve =  bveData.apply("KV_bve", ParDo.of(new DoFn<BveElement, KV< Integer, BveElement >>() {
-            @ProcessElement
-            public void processElement(@Element BveElement element, OutputReceiver<KV<Integer, BveElement>> receiver) {
-                receiver.output(  KV.of(element.Id(), element)  );
-            }
-        }));
+        PCollection<KV< Integer, BveElement >> KVbve =  bveData.apply("KV_bve_mapping",  MapElements
+                                                                .into(TypeDescriptors.kvs(TypeDescriptors.integers(),  TypeDescriptor.of(BveElement.class)))
+                                                                .via( new KVBVE()));
 
 
 
@@ -199,57 +187,168 @@ public class Vinextract {
         /*
          * Jointure entre NGC et les requetes sur Immat
          * */
-        PCollection<KV<String, KV<Row, Row>>> joinedDatasets = Join.innerJoin(KVngc, KVrequest);
-
-        /*
-         * TEST
-         * **
-         */
-        /*KVbve.apply(
-                "log_result",
-                MapElements.via(
-                        new SimpleFunction<KV< Integer, BveElement >, Void>() {
-                            @Override
-                            public @Nullable
-                            Void apply(KV< Integer, BveElement > input) {
-                                System.out.println( String.format("PCOLLECTION: %s ", input.getKey()  ));
-                                return null;
-                            }
-                        }));*/
-
-        /*
-           Filtrage par marque
-          **/
-
-        PCollection<KV<Integer, CompareElement>> filtered  = joinedDatasets.apply( "Filter_by_Marque", ParDo.of(new FilterBy(options.getMarque())));
-
-
-
+        PCollection< KV<Integer,CompareElement> > filteredJoin  = Join.innerJoin(KVrequest, KVngc)
+                                                                        .apply( "Filter_by_Marque", Filter.by(new FilterMarque(options.getMarque())) )
+                                                                        .apply( "KV_join_mapping",  MapElements
+                                                                                                .into(TypeDescriptors.kvs(TypeDescriptors.integers(), TypeDescriptor.of(CompareElement.class) ))
+                                                                                                .via( new KVJoin() ));
 
         /*
            Jointure entre NGC, requetes et bve
           **/
-        PCollection<KV<Integer, KV<CompareElement, BveElement>>> finalJoinedDatasets =  Join.innerJoin(filtered, KVbve);
+        PCollection< KV<Integer, KV<CompareElement, BveElement>> > filterFinalJoin1 =  Join.innerJoin(filteredJoin, KVbve);
 
-        finalJoinedDatasets.apply("ToString", ParDo.of(new DoFn<KV<Integer, KV<CompareElement, BveElement>>, String>() {
 
-            @ProcessElement
-            public void processElement(ProcessContext c) throws Exception {
-                StringBuilder sb = new StringBuilder();
+        filterFinalJoin1.apply(
+                "log_result",
+                MapElements.via(
+                        new SimpleFunction<KV<Integer, KV<CompareElement, BveElement>>, Void>() {
+                            @Override
+                            public @Nullable
+                            Void apply(KV<Integer, KV<CompareElement, BveElement>> input) {
+                                System.out.println( String.format("PCOLLECTION: %s, MARQUE: %s - %s\n Vitesse: %s - %s\n  Porte: %s - %s\n  Cylindre: %s - %s\n  Modele: %s - %s\n  Puissance: %s - %s\n   ",
+                                        input.getKey(),
+                                        input.getValue().getKey().marque(),   input.getValue().getValue().marque(),
+                                        input.getValue().getValue().vitessesnbr(), input.getValue().getKey().vitessesnbr(),
+                                        input.getValue().getValue().portesnbr(), input.getValue().getKey().portesnbr(),
+                                        input.getValue().getValue().cylindreecm3(), input.getValue().getKey().cylindreecm3(),
+                                        input.getValue().getValue().modele(), input.getValue().getKey().modele(),
+                                        input.getValue().getValue().puissancecom(), input.getValue().getKey().puissancecom()
+                                        ));
+                                return null;
+                            }
+                        }));
 
-                KV<CompareElement, BveElement> value = c.element().getValue();
+        PCollection< KV<Integer, KV<CompareElement, BveElement>> > filterFinalJoin =  filterFinalJoin1.apply( Filter.by( new FilterByCompare() ) );
 
-                sb.append(String.format("%s", value.getKey().immat()  ));
 
-                c.output(sb.toString());
-            }
-
-        }))
-                .apply( "WriteToFile", TextIO.write().to(options.getOutput()).withSuffix(".csv").withoutSharding());
+        /*
+           Write to File
+          **/
+        filterFinalJoin.apply("ToString", ParDo.of(new ConvertToString()))
+                        .apply( "WriteToFile", TextIO.write().to(options.getOutput()).withSuffix(".csv").withoutSharding());
 
 
         p.run().waitUntilFinish();
     }
 
+
+    static class KVRequest implements SerializableFunction<RequestElement, KV<String, Integer>> {
+            @Override
+            public KV<String, Integer> apply(RequestElement input) {
+                Integer variante = Integer.parseInt(input.resultat().split(",")[0]);
+                return KV.of(input.immat(), variante);
+            }
+    }
+
+    static class KVJoin implements SerializableFunction<KV<String, KV<Integer, VehNgcElement>>, KV<Integer, CompareElement>> {
+        @Override
+        public KV<Integer, CompareElement> apply(KV<String, KV<Integer, VehNgcElement>> input) {
+            VehNgcElement ngcElement = input.getValue().getValue();
+            Integer variante = input.getValue().getKey();
+
+            return KV.of(variante, CompareElement.create(
+                                                ngcElement.marque(),
+                                                input.getKey(),
+                                                variante,
+                                                ngcElement.modele(),
+                                                Integer.parseInt(ngcElement.cylindree()),
+                                                Integer.parseInt(ngcElement.nbvitesse()),
+                                                Integer.parseInt(ngcElement.nbportes()),
+                                                Integer.parseInt(ngcElement.puiskw()),
+                                                ngcElement.vin() ));
+        }
+    }
+
+    static class KVNGC implements SerializableFunction<VehNgcElement, KV<String, VehNgcElement>> {
+        @Override
+        public KV<String, VehNgcElement> apply(VehNgcElement input) {
+            return KV.of(input.immat(), input);
+        }
+    }
+
+    static class REQRepresent  implements SerializableFunction<RequestElement, String> {
+            @Override
+            public String apply(RequestElement input) {
+                return input.immat();
+            }
+    }
+
+    static class FilterReq implements SerializableFunction<RequestElement, Boolean> {
+
+        @Override
+        public Boolean apply(RequestElement input) {
+            return input.resultat().split(",").length == 1;
+        }
+    }
+
+    static class FilterMarque implements SerializableFunction<KV<String, KV<Integer, VehNgcElement>>, Boolean> {
+
+        private String filterMarque;
+
+        FilterMarque( String filterMarque ) {
+            this.filterMarque = filterMarque;
+        }
+
+        @Override
+        public Boolean apply(KV<String, KV<Integer, VehNgcElement>> input) {
+            return input.getValue().getValue().marque().equals(this.filterMarque);
+        }
+    }
+
+    static class FilterByCompare implements SerializableFunction< KV<Integer, KV<CompareElement, BveElement>>, Boolean> {
+        @Override
+        public Boolean apply(KV<Integer, KV<CompareElement, BveElement>> input) {
+
+            BveElement bve = input.getValue().getValue();
+            CompareElement cmp = input.getValue().getKey();
+
+            return  cmp.marque().equals(bve.marque()) &&
+                    cmp.portesnbr().equals(bve.portesnbr()) &&
+                    cmp.modele().equals(bve.modele()) &&
+                    cmp.cylindreecm3().equals(bve.cylindreecm3()) &&
+                    cmp.puissancecom().equals(bve.puissancecom()) &&
+                    cmp.vitessesnbr().equals(bve.vitessesnbr());
+        }
+    }
+
+    static class KVBVE implements SerializableFunction<BveElement, KV< Integer, BveElement >> {
+        @Override
+        public KV<Integer, BveElement> apply(BveElement element) {
+            return KV.of(element.Id(), element)  ;
+        }
+    }
+
+    public static class TransformRequest extends PTransform<PCollection<RequestElement> , PCollection< KV<String, Integer> >> {
+
+        @Override
+        public PCollection<KV<String, Integer>> expand(PCollection<RequestElement> req) {
+
+
+            // Remove duplicated requests
+            PCollection<RequestElement> processedReq = req.apply("remove_duplicates_immat", Distinct.withRepresentativeValueFn( new REQRepresent() ));
+
+
+            // Filter by selecting only request with one result
+            PCollection<RequestElement> filterdReq = processedReq.apply("filter_more_than_one", Filter.by(new FilterReq()));
+
+
+            // Mapping request Element to Key-Value Object with Immat as Key and Result as Value
+            PCollection<KV<String, Integer>> KVreq = filterdReq.apply("KV_request_mapping", MapElements.into(TypeDescriptors.kvs(TypeDescriptors.strings(), TypeDescriptors.integers()))
+                                        .via( new KVRequest()));
+
+            return KVreq;
+        }
+    }
+
+    public static class ConvertToString extends DoFn<KV<Integer, KV<CompareElement, BveElement>>, String> {
+        @ProcessElement
+        public void processElement(ProcessContext c) throws Exception {
+            StringBuilder sb = new StringBuilder();
+            KV<CompareElement, BveElement> value = c.element().getValue();
+            sb.append(String.format("%s,%s\n%s\n%s\n", value.getKey().vin(), value.getValue().Id(), value.getKey().toString(), value.getValue().toString() ));
+            c.output(sb.toString());
+        }
+    }
 
 }
