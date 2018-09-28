@@ -2,6 +2,7 @@ package etai.Elements;
 
 import com.google.auto.value.AutoValue;
 import com.google.auto.value.extension.memoized.Memoized;
+import org.apache.avro.reflect.Nullable;
 
 import java.io.Serializable;
 
@@ -15,7 +16,7 @@ public abstract class CompareElement implements Serializable, Comparable<Compare
     public abstract Integer cylindreecm3();
     public abstract Integer vitessesnbr();
     public abstract Integer portesnbr();
-    public abstract Integer puissancekw();
+    public abstract Integer puissancecom();
     public abstract String vin ();
 
     public static CompareElement create ( String marque, String immat, Integer idvariante, String model, Integer cylindr, Integer nbVit, Integer nbport, Integer puiss, String vin) {
@@ -39,4 +40,7 @@ public abstract class CompareElement implements Serializable, Comparable<Compare
     @Memoized
     @Override
     public abstract String toString();
+
+    @Override
+    public abstract boolean equals(@Nullable Object x);
 }

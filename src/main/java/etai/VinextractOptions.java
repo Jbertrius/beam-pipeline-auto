@@ -115,4 +115,10 @@ public interface VinextractOptions extends PipelineOptions {
     @Default.String("Local")
     String getEnvironment();
     void setEnvironment(String value);
+
+    // Set this required option to specify where to run the program.
+    @Description("limit or query")
+    @Default.Integer(0)
+    Integer getLimit();
+    void setLimit(Integer value);
 }

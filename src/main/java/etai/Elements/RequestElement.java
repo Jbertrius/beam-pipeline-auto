@@ -4,6 +4,7 @@ import com.google.auto.value.extension.memoized.Memoized;
 
 import java.io.Serializable;
 import com.google.auto.value.AutoValue;
+import org.apache.avro.reflect.Nullable;
 
 @AutoValue
 public abstract class RequestElement implements Serializable, Comparable<RequestElement>  {
@@ -29,5 +30,7 @@ public abstract class RequestElement implements Serializable, Comparable<Request
     @Override
     public abstract String toString();
 
+    @Override
+    public abstract boolean equals(@Nullable Object x);
 
 }

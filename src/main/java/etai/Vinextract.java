@@ -32,7 +32,14 @@ public class Vinextract {
         /* Define Remote or Local State */
         String driver,databaseType,queryReq, queryBVE;
 
-        String limit = "  LIMIT 60000";
+        String limit;
+
+        if (options.getLimit() == 0) {
+            limit = " ";
+        } else {
+            limit = " LIMIT " + options.getLimit();
+        }
+
         Integer fetchsize = 500;
 
         if (options.getEnvironment().equals("Local")) {
@@ -196,31 +203,8 @@ public class Vinextract {
         /*
            Jointure entre NGC, requetes et bve
           **/
-        PCollection< KV<Integer, KV<CompareElement, BveElement>> > filterFinalJoin1 =  Join.innerJoin(filteredJoin, KVbve);
-
-
-        filterFinalJoin1.apply(
-                "log_result",
-                MapElements.via(
-                        new SimpleFunction<KV<Integer, KV<CompareElement, BveElement>>, Void>() {
-                            @Override
-                            public @Nullable
-                            Void apply(KV<Integer, KV<CompareElement, BveElement>> input) {
-                                System.out.println( String.format("PCOLLECTION: %s, MARQUE: %s - %s\n Vitesse: %s - %s\n  Porte: %s - %s\n  Cylindre: %s - %s\n  Modele: %s - %s\n  Puissance: %s - %s\n   ",
-                                        input.getKey(),
-                                        input.getValue().getKey().marque(),   input.getValue().getValue().marque(),
-                                        input.getValue().getValue().vitessesnbr(), input.getValue().getKey().vitessesnbr(),
-                                        input.getValue().getValue().portesnbr(), input.getValue().getKey().portesnbr(),
-                                        input.getValue().getValue().cylindreecm3(), input.getValue().getKey().cylindreecm3(),
-                                        input.getValue().getValue().modele(), input.getValue().getKey().modele(),
-                                        input.getValue().getValue().puissancecom(), input.getValue().getKey().puissancecom()
-                                        ));
-                                return null;
-                            }
-                        }));
-
-        PCollection< KV<Integer, KV<CompareElement, BveElement>> > filterFinalJoin =  filterFinalJoin1.apply( Filter.by( new FilterByCompare() ) );
-
+        PCollection< KV<Integer, KV<CompareElement, BveElement>> > filterFinalJoin =   Join.innerJoin(filteredJoin, KVbve)
+                                                                                            .apply( "compare_bve_ngc", Filter.by( new FilterByCompare() ) );
 
         /*
            Write to File
@@ -346,7 +330,7 @@ public class Vinextract {
         public void processElement(ProcessContext c) throws Exception {
             StringBuilder sb = new StringBuilder();
             KV<CompareElement, BveElement> value = c.element().getValue();
-            sb.append(String.format("%s,%s\n%s\n%s\n", value.getKey().vin(), value.getValue().Id(), value.getKey().toString(), value.getValue().toString() ));
+            sb.append(String.format("%s,%s", value.getKey().vin(), value.getValue().Id()));
             c.output(sb.toString());
         }
     }
