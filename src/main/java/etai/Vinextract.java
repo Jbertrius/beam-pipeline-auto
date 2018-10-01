@@ -40,7 +40,7 @@ public class Vinextract {
             limit = " LIMIT " + options.getLimit();
         }
 
-        Integer fetchsize = 500;
+        Integer fetchsize = 50;
 
         if (options.getEnvironment().equals("Local")) {
             driver = "org.postgresql.Driver";
